@@ -58,6 +58,10 @@ dependencies = [
     "pymongo>=4.6.0,<6.0.0",
     # Redis
     "redis>=5.0.0,<6.0.0",
+    # PostgreSQL driver — required by the incident-memory pgvector store (SRE-47).
+    # Upstream keeps this extras-only (Postgres is just an investigation tool), but
+    # our fork uses Postgres as a first-class backing store, so it must be core.
+    "psycopg2-binary>=2.9.0,<3.0.0",
     # Signature verfication for discord
     "PyNaCl>=1.5.0",
     # MariaDB
