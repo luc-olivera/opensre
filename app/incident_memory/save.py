@@ -63,7 +63,17 @@ def save_incident_note_from_state(state: dict[str, Any]) -> bool:
     global _schema_ready
     try:
         cfg = load_config()
+        logger.info(
+            "[incident_memory] save hook invoked (enabled=%s, db_uri_set=%s)",
+            cfg.enabled,
+            bool(cfg.database_uri),
+        )
         if not cfg.usable:
+            logger.info(
+                "[incident_memory] skip save: not usable (enabled=%s, db_uri_set=%s)",
+                cfg.enabled,
+                bool(cfg.database_uri),
+            )
             return False
 
         validity = state.get("validity_score")

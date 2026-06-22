@@ -297,8 +297,8 @@ def generate_report(state: InvestigationState) -> dict:
         from app.incident_memory import save_incident_note_from_state
 
         save_incident_note_from_state(dict(state))
-    except Exception:
-        logger.debug("[incident_memory] save hook skipped", exc_info=True)
+    except Exception as exc:
+        logger.warning("[incident_memory] save hook skipped: %s", exc, exc_info=True)
 
     return {"slack_message": slack_message, "report": slack_message}
 
