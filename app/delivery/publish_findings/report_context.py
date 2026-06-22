@@ -12,9 +12,24 @@ build_report_context runs four phases:
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
 from urllib.parse import urlparse
+
+
+def _effective_datadog_site(site: str | None) -> str:
+    """Resolve the Datadog site for report display, honoring DD_SITE (SRE-48 fork fix).
+
+    The resolved integration dict often lacks a ``site`` and would default to
+    ``datadoghq.com``, so an EU deployment (``DD_SITE=datadoghq.eu``) rendered the
+    wrong site + ``app.datadoghq.com`` URLs in the report/Slack body even though the
+    actual API calls go to ``.eu``. An explicit DD_SITE wins, mirroring the client.
+    """
+    env_site = os.getenv("DD_SITE", "").strip()
+    if env_site:
+        return env_site
+    return (site or "").strip() or "datadoghq.com"
 
 from typing_extensions import TypedDict
 
@@ -183,9 +198,9 @@ class _NormalizedState:
         self.grafana_endpoint: str | None = (available_sources.get("grafana") or {}).get(
             "grafana_endpoint"
         )
-        self.datadog_site: str = (available_sources.get("datadog") or {}).get(
-            "site"
-        ) or "datadoghq.com"
+        self.datadog_site: str = _effective_datadog_site(
+            (available_sources.get("datadog") or {}).get("site")
+        )
 
         self.validated_claims: list[dict] = _filter_valid_claims(state.get("validated_claims", []))
         self.non_validated_claims: list[dict] = state.get("non_validated_claims", [])
@@ -623,7 +638,7 @@ def _build_source_provenance(
             "summary": ", ".join(
                 part
                 for part in [
-                    f"site={datadog.get('site', 'datadoghq.com')}",
+                    f"site={_effective_datadog_site(datadog.get('site'))}",
                     f"query={datadog.get('default_query')}"
                     if datadog.get("default_query")
                     else None,

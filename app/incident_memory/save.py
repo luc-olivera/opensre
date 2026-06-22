@@ -63,13 +63,13 @@ def save_incident_note_from_state(state: dict[str, Any]) -> bool:
     global _schema_ready
     try:
         cfg = load_config()
-        logger.info(
+        logger.warning(
             "[incident_memory] save hook invoked (enabled=%s, db_uri_set=%s)",
             cfg.enabled,
             bool(cfg.database_uri),
         )
         if not cfg.usable:
-            logger.info(
+            logger.warning(
                 "[incident_memory] skip save: not usable (enabled=%s, db_uri_set=%s)",
                 cfg.enabled,
                 bool(cfg.database_uri),
@@ -79,17 +79,17 @@ def save_incident_note_from_state(state: dict[str, Any]) -> bool:
         validity = state.get("validity_score")
         category = state.get("root_cause_category")
         if validity is None or float(validity) < cfg.min_validity:
-            logger.info(
+            logger.warning(
                 "[incident_memory] skip save: validity=%s < min=%s", validity, cfg.min_validity
             )
             return False
         if category in _SKIP_CATEGORIES:
-            logger.info("[incident_memory] skip save: category=%s", category)
+            logger.warning("[incident_memory] skip save: category=%s", category)
             return False
 
         symptom = _build_symptom(state)
         if not symptom:
-            logger.info("[incident_memory] skip save: empty symptom text")
+            logger.warning("[incident_memory] skip save: empty symptom text")
             return False
 
         from app.incident_memory import embeddings, store
@@ -111,7 +111,7 @@ def save_incident_note_from_state(state: dict[str, Any]) -> bool:
         )
         vector = embeddings.embed_text(symptom, cfg)
         store.insert_note(cfg, note, vector)
-        logger.info(
+        logger.warning(
             "[incident_memory] saved note: alert=%s category=%s validity=%.2f",
             note.alert_name,
             category,
