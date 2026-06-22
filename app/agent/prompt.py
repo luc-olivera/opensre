@@ -20,6 +20,7 @@ Your task: investigate the alert below and produce a clear, evidence-backed root
 ## Rules
 
 - Never guess when a tool can answer — use it.
+- If a `recall_similar_incidents` result is present, use it as a starting point: treat its past root causes and remediations as prior hypotheses to confirm or rule out with live tools — never as the current root cause on their own.
 - Report what tools actually returned. Do not invent log lines or metrics.
 - If a tool returns an error or empty result, try another tool from the same integration before giving up.
 - If all evidence points to healthy service, say so clearly (root_cause_category = healthy).

@@ -83,6 +83,17 @@ _INSTANCE_METADATA: dict[str, str | None] = {
 _REPORTED_REMOTE_EVENTS: set[tuple[str, str]] = set()
 logger = logging.getLogger(__name__)
 
+# SRE-47 (CloudNation fork): register the incident-memory recall tool with the
+# shared tool registry at server import, before any investigation consumes it.
+# Idempotent and self-guarding — a failure here logs and leaves recall disabled
+# rather than breaking server startup.
+try:
+    from app.incident_memory import register as _register_incident_memory
+
+    _register_incident_memory()
+except Exception:  # pragma: no cover - defensive; register() already self-guards
+    logger.exception("[incident_memory] registration at server import failed; recall disabled")
+
 
 def _remote_report_key(event: str, extras: dict[str, Any] | None = None) -> tuple[str, str]:
     return (event, str(extras or ""))

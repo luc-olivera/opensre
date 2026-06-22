@@ -117,7 +117,7 @@ def search_similar(
     """Return up to ``k`` most-similar past notes (cosine), same embedding model only."""
     limit = k if k is not None else cfg.top_k
     sql = f"""
-        SELECT symptom, root_cause, root_cause_category, remediation,
+        SELECT alert_name, symptom, root_cause, root_cause_category, remediation,
                validity_score, created_at,
                1 - (embedding <=> %s::vector) AS similarity
         FROM {TABLE}

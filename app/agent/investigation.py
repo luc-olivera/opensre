@@ -271,6 +271,12 @@ class ConnectedInvestigationAgent:
         # based on the alert source. This guarantees the LLM always sees real data
         # from the right integration first, regardless of what it would have chosen.
         seed_calls = _build_seed_calls(state, tools, llm)
+        # SRE-47: deterministically recall similar past incidents before the LLM
+        # loop, ahead of the integration seeds, so prior hypotheses are the first
+        # thing in the evidence trace. Best-effort — never blocks the loop.
+        recall_seed = _maybe_build_incident_memory_seed(state, tools, llm)
+        if recall_seed is not None:
+            seed_calls = [recall_seed, *seed_calls]
         if seed_calls:
             logger.debug("[agent] seeding %d primary tool calls before LLM loop", len(seed_calls))
             for tc in seed_calls:
@@ -772,6 +778,29 @@ def _build_connected_tool_context(
         "available_sources": sources,
         "available_action_names": [tool.name for tool in sorted(tools, key=lambda item: item.name)],
     }
+
+
+def _maybe_build_incident_memory_seed(
+    state: dict[str, Any],
+    tools: list[RegisteredTool],
+    llm: Any,
+) -> ToolCall | None:
+    """Build the incident-memory recall seed call, or ``None`` if not applicable.
+
+    Additive SRE-47 hook (CloudNation fork). All logic lives in the
+    ``app.incident_memory`` package; this wrapper only guards the optional import
+    and swallows failures so an absent or broken memory package can never block
+    the investigation.
+    """
+    try:
+        from app.incident_memory.tools.recall import build_recall_seed_call
+    except Exception:
+        return None
+    try:
+        return build_recall_seed_call(state, tools, llm)
+    except Exception:
+        logger.debug("[incident_memory] recall seed build failed (non-fatal)", exc_info=True)
+        return None
 
 
 def _build_seed_calls(
