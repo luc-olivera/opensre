@@ -20,7 +20,11 @@ from __future__ import annotations
 
 import logging
 
+from app.incident_memory.save import save_incident_note_from_state
+
 logger = logging.getLogger(__name__)
+
+__all__ = ["register", "save_incident_note_from_state"]
 
 _registered = False
 

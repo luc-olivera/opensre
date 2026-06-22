@@ -289,6 +289,17 @@ def generate_report(state: InvestigationState) -> dict:
 
     post_gitlab_mr_writeback(state, slack_message)
 
+    # Incident memory (SRE-47, CloudNation fork): persist a note for this
+    # completed investigation so future ones can recall it. Best-effort —
+    # save_incident_note_from_state never raises, but guard the import too so
+    # this can never break delivery.
+    try:
+        from app.incident_memory import save_incident_note_from_state
+
+        save_incident_note_from_state(dict(state))
+    except Exception:
+        logger.debug("[incident_memory] save hook skipped", exc_info=True)
+
     return {"slack_message": slack_message, "report": slack_message}
 
 
