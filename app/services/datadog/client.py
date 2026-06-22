@@ -322,19 +322,24 @@ class DatadogClient:
         now = datetime.now(UTC)
         from_ts = now - timedelta(minutes=time_range_minutes)
 
-        payload: dict[str, Any] = {
-            "filter": {
-                "from": from_ts.isoformat(),
-                "to": now.isoformat(),
-            },
-            "sort": "-timestamp",
-            "page": {"limit": 50},
-        }
-        if query:
-            payload["filter"]["query"] = query
+        def _payload(q: str | None) -> dict[str, Any]:
+            f: dict[str, Any] = {"from": from_ts.isoformat(), "to": now.isoformat()}
+            if q:
+                f["query"] = q
+            return {"filter": f, "sort": "-timestamp", "page": {"limit": 50}}
 
         try:
-            resp = self._get_client().post("/api/v2/events/search", json=payload)
+            client = self._get_client()
+            resp = client.post("/api/v2/events/search", json=_payload(query))
+            # Events-search expects events-explorer facet syntax (e.g. service:foo),
+            # NOT metric/log query syntax. A metric-style query (trace.x{...},
+            # avg(...):...) yields a 400 — retry once without it so we still return
+            # recent events in the window instead of erroring out. (SRE-48)
+            if resp.status_code == 400 and query:
+                logger.warning(
+                    "[datadog] events query rejected (400); retrying without query"
+                )
+                resp = client.post("/api/v2/events/search", json=_payload(None))
             resp.raise_for_status()
             data = resp.json()
 
@@ -503,19 +508,23 @@ class DatadogAsyncClient:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         from_ts = now - timedelta(minutes=time_range_minutes)
-        payload: dict[str, Any] = {
-            "filter": {
-                "from": from_ts.isoformat(),
-                "to": now.isoformat(),
-            },
-            "sort": "-timestamp",
-            "page": {"limit": 50},
-        }
-        if query:
-            payload["filter"]["query"] = query
+
+        def _payload(q: str | None) -> dict[str, Any]:
+            f: dict[str, Any] = {"from": from_ts.isoformat(), "to": now.isoformat()}
+            if q:
+                f["query"] = q
+            return {"filter": f, "sort": "-timestamp", "page": {"limit": 50}}
+
         t0 = time.monotonic()
         try:
-            resp = await client.post("/api/v2/events/search", json=payload)
+            resp = await client.post("/api/v2/events/search", json=_payload(query))
+            # See get_events: events-search rejects metric/log query syntax with a
+            # 400; retry once without the query so we still return recent events. (SRE-48)
+            if resp.status_code == 400 and query:
+                logger.warning(
+                    "[datadog] events query rejected (400); retrying without query"
+                )
+                resp = await client.post("/api/v2/events/search", json=_payload(None))
             resp.raise_for_status()
             data = resp.json()
             duration_ms = int((time.monotonic() - t0) * 1000)
