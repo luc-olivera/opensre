@@ -68,7 +68,14 @@ def _ensure_take_clause(query: str, limit: int) -> str:
             "integration_id": {"type": "string"},
             "timeout_seconds": {"type": "number", "default": 20.0},
         },
-        "required": ["workspace_id", "access_token"],
+        # workspace_id + access_token are connection params injected at execution
+        # time from the resolved `azure` integration (see _azure_extract_params and
+        # investigation.py: kwargs = {**injected, **tc.input}). They must NOT be in
+        # `required`, or the model — which has no way to know a secret token — sees
+        # two mandatory params it can't fill and declines to call the tool. Mirrors
+        # the Datadog tools, which keep api_key/app_key out of `required`. The query
+        # itself is optional (defaults to recent AppTraces). (CloudNation fix)
+        "required": [],
     },
     is_available=_azure_available,
     extract_params=_azure_extract_params,
