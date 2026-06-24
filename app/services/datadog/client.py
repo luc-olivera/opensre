@@ -24,6 +24,44 @@ _DEFAULT_TIMEOUT = 30
 
 DatadogConfig = DatadogIntegrationConfig
 
+# Datadog's logs search API is tightly rate-limited (logs_public_search_api =
+# 3 req/10s on the EU site), and a single investigation can burst past it. Retry
+# 429s a bounded number of times, honoring the rate-limit reset header. (SRE-58)
+_RATE_LIMIT_MAX_RETRIES = 3
+_RATE_LIMIT_MAX_SLEEP = 12.0
+
+
+def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
+    """Seconds to wait before retrying a 429, from Datadog's rate-limit headers."""
+    hdr = resp.headers.get("x-ratelimit-reset") or resp.headers.get("retry-after") or ""
+    try:
+        delay = float(hdr)
+    except ValueError:
+        delay = 2.0**attempt  # exponential fallback when no header is present
+    return min(max(delay, 1.0), _RATE_LIMIT_MAX_SLEEP)
+
+
+def _post_with_429_retry(send: Any) -> Any:
+    """Call the (sync) request thunk, retrying on HTTP 429 with backoff."""
+    resp = send()
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+        if resp.status_code != 429:
+            return resp
+        time.sleep(_retry_after_seconds(resp, attempt))
+        resp = send()
+    return resp
+
+
+async def _apost_with_429_retry(send: Any) -> Any:
+    """Call the (async) request thunk, retrying on HTTP 429 with backoff."""
+    resp = await send()
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES):
+        if resp.status_code != 429:
+            return resp
+        await asyncio.sleep(_retry_after_seconds(resp, attempt))
+        resp = await send()
+    return resp
+
 
 class DatadogClient:
     """Synchronous client for querying Datadog logs, events, and monitors."""
@@ -88,7 +126,9 @@ class DatadogClient:
         }
 
         try:
-            resp = self._get_client().post("/api/v2/logs/events/search", json=payload)
+            resp = _post_with_429_retry(
+                lambda: self._get_client().post("/api/v2/logs/events/search", json=payload)
+            )
             resp.raise_for_status()
             data = resp.json()
 
@@ -398,7 +438,9 @@ class DatadogAsyncClient:
         }
         t0 = time.monotonic()
         try:
-            resp = await client.post("/api/v2/logs/events/search", json=payload)
+            resp = await _apost_with_429_retry(
+                lambda: client.post("/api/v2/logs/events/search", json=payload)
+            )
             resp.raise_for_status()
             data = resp.json()
             duration_ms = int((time.monotonic() - t0) * 1000)
