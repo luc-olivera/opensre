@@ -62,6 +62,10 @@ dependencies = [
     # Upstream keeps this extras-only (Postgres is just an investigation tool), but
     # our fork uses Postgres as a first-class backing store, so it must be core.
     "psycopg2-binary>=2.9.0,<3.0.0",
+    # Azure Managed Identity — mints the Log Analytics query token for the
+    # AzureMonitorLogsTool keylessly (CloudNation Azure-visibility track). Core
+    # because our self-hosted agent always runs with a UAMI in Azure.
+    "azure-identity>=1.19.0,<2.0.0",
     # Signature verfication for discord
     "PyNaCl>=1.5.0",
     # MariaDB

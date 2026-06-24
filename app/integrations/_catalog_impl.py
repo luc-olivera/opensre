@@ -1121,6 +1121,25 @@ def _active_env_record(
     }
 
 
+def _mint_azure_loganalytics_token() -> str:
+    """Mint a bearer token for the Azure Monitor Log Analytics query API via the
+    container's Managed Identity (CloudNation, SRE-47/Azure-visibility track).
+
+    Uses DefaultAzureCredential, which honours AZURE_CLIENT_ID to select a
+    user-assigned identity (`id-cat-opensre`). Returns "" on any failure so the
+    azure integration is simply skipped rather than breaking the loader.
+    """
+    try:
+        from azure.identity import DefaultAzureCredential
+
+        credential = DefaultAzureCredential()
+        token = credential.get_token("https://api.loganalytics.io/.default")
+        return token.token or ""
+    except Exception as exc:  # pragma: no cover - defensive (env without MI/SDK)
+        _report_env_loader_failure(exc, integration="azure")
+        return ""
+
+
 def load_env_integrations() -> list[dict[str, Any]]:
     """Build integration records from local environment variables."""
     integrations: list[dict[str, Any]] = []
@@ -1867,6 +1886,13 @@ def load_env_integrations() -> list[dict[str, Any]]:
 
     azure_workspace_id = os.getenv("AZURE_LOG_ANALYTICS_WORKSPACE_ID", "").strip()
     azure_access_token = os.getenv("AZURE_LOG_ANALYTICS_TOKEN", "").strip()
+    # CloudNation: prefer a Managed-Identity-minted token (keyless, production
+    # posture) over a static AZURE_LOG_ANALYTICS_TOKEN. This loader runs per
+    # investigation (resolve_integrations is a pipeline node), so the token is
+    # always fresh well within its ~1h lifetime. Falls back to the static token
+    # if minting is unavailable.
+    if azure_workspace_id and not azure_access_token:
+        azure_access_token = _mint_azure_loganalytics_token()
     if azure_workspace_id and azure_access_token:
         integrations.append(
             _active_env_record(
