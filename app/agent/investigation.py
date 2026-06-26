@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import os
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Any
@@ -183,11 +184,26 @@ class ConnectedInvestigationAgent:
         and ``state["available_action_names"]`` — anything dropped here is
         also dropped from those state fields.
 
-        Default returns the input unchanged. Subclasses can override to
-        implement any policy that restricts tool availability per agent
-        instance (e.g. enforce an allowlist for an isolated execution mode).
+        Default honours an env-driven denylist: tool names listed in
+        ``OPENSRE_DISABLED_TOOLS`` (comma-separated) are dropped from the
+        candidate set, so the model never sees them. CloudNation uses this to
+        disable ``query_datadog_logs`` — the Datadog logs search API is too
+        rate-limited (3 req/10s) to use during an investigation; log inspection
+        goes through Azure Monitor instead. Subclasses can override for richer
+        policies (e.g. an allowlist for an isolated execution mode).
         """
-        return tools
+        disabled = {
+            name.strip()
+            for name in os.getenv("OPENSRE_DISABLED_TOOLS", "").split(",")
+            if name.strip()
+        }
+        if not disabled:
+            return tools
+        kept = [t for t in tools if t.name not in disabled]
+        dropped = [t.name for t in tools if t.name in disabled]
+        if dropped:
+            logger.info("[tools] disabled via OPENSRE_DISABLED_TOOLS: %s", ", ".join(sorted(dropped)))
+        return kept
 
     def _build_system_prompt(self, state: dict[str, Any]) -> str:
         """Hook: produce the LLM system prompt for this investigation.
