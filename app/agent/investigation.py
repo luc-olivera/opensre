@@ -93,13 +93,24 @@ def _context_budget_ceiling_for_model(model: str | None) -> int:
     resolve to the right family. Unknown → conservative default, which only ever
     trims slightly early; it never risks an overflow.
     """
-    window = _DEFAULT_CONTEXT_WINDOW
-    if model:
-        key = model.lower()
-        for family, family_window in _MODEL_CONTEXT_WINDOWS.items():
-            if family in key:
-                window = family_window
-                break
+    # Deployment override (SRE-64): when the active model reaches us through a
+    # proxy logical name (e.g. LiteLLM's "sre-reasoning"), the family table can't
+    # match it and we fall back to the conservative 128k default — trimming at
+    # ~8x below the real window. OPENSRE_MODEL_CONTEXT_WINDOW lets the operator
+    # state the model's window (in tokens) explicitly. Also doubles as a cost cap:
+    # set it below the model's hard limit to bound worst-case per-investigation
+    # input. Value is the context WINDOW; the ceiling subtracts response headroom.
+    env_window = os.getenv("OPENSRE_MODEL_CONTEXT_WINDOW", "").strip()
+    if env_window.isdigit() and int(env_window) > 0:
+        window = int(env_window)
+    else:
+        window = _DEFAULT_CONTEXT_WINDOW
+        if model:
+            key = model.lower()
+            for family, family_window in _MODEL_CONTEXT_WINDOWS.items():
+                if family in key:
+                    window = family_window
+                    break
     return max(window - _RESPONSE_HEADROOM_TOKENS, _RESPONSE_HEADROOM_TOKENS)
 
 
