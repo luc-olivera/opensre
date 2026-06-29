@@ -925,7 +925,13 @@ def _classify_service_instance(
     if key == "azure":
         workspace_id = str(credentials.get("workspace_id", "")).strip()
         access_token = str(credentials.get("access_token", "")).strip()
-        if not (workspace_id and access_token):
+        arm_access_token = str(credentials.get("arm_access_token", "")).strip()
+        subscription_id = str(credentials.get("subscription_id", "")).strip()
+        # Keep the source if EITHER Log Analytics (workspace+token) OR ARM
+        # (token+subscription) is configured — they are independent (SRE-68).
+        la_ok = bool(workspace_id and access_token)
+        arm_ok = bool(arm_access_token and subscription_id)
+        if not (la_ok or arm_ok):
             return None, None
         endpoint = (
             str(credentials.get("endpoint", "https://api.loganalytics.io")).strip()
@@ -936,9 +942,15 @@ def _classify_service_instance(
             "access_token": access_token,
             "endpoint": endpoint,
             "tenant_id": str(credentials.get("tenant_id", "")).strip(),
-            "subscription_id": str(credentials.get("subscription_id", "")).strip(),
+            "subscription_id": subscription_id,
             "max_results": max(1, min(safe_int(credentials.get("max_results", 100), 100), 500)),
             "integration_id": record_id,
+            "arm_access_token": arm_access_token,
+            "arm_endpoint": (
+                str(credentials.get("arm_endpoint", "https://management.azure.com")).strip()
+                or "https://management.azure.com"
+            ),
+            "arm_resource_group": str(credentials.get("arm_resource_group", "")).strip(),
         }, "azure"
 
     if key == "openobserve":
@@ -1134,6 +1146,25 @@ def _mint_azure_loganalytics_token() -> str:
 
         credential = DefaultAzureCredential()
         token = credential.get_token("https://api.loganalytics.io/.default")
+        return token.token or ""
+    except Exception as exc:  # pragma: no cover - defensive (env without MI/SDK)
+        _report_env_loader_failure(exc, integration="azure")
+        return ""
+
+
+def _mint_azure_arm_token() -> str:
+    """Mint a bearer token for the Azure Resource Manager (control-plane) API via
+    the container's Managed Identity (CloudNation, SRE-68 ARM-read tools).
+
+    Same keyless DefaultAzureCredential path as the Log Analytics minter, but for
+    scope ``https://management.azure.com/.default``. Returns "" on any failure so
+    the ARM read tools simply stay unavailable rather than breaking the loader.
+    """
+    try:
+        from azure.identity import DefaultAzureCredential
+
+        credential = DefaultAzureCredential()
+        token = credential.get_token("https://management.azure.com/.default")
         return token.token or ""
     except Exception as exc:  # pragma: no cover - defensive (env without MI/SDK)
         _report_env_loader_failure(exc, integration="azure")
@@ -1893,7 +1924,19 @@ def load_env_integrations() -> list[dict[str, Any]]:
     # if minting is unavailable.
     if azure_workspace_id and not azure_access_token:
         azure_access_token = _mint_azure_loganalytics_token()
-    if azure_workspace_id and azure_access_token:
+
+    # CloudNation (SRE-68): read-only ARM / control-plane access, independent of
+    # Log Analytics. Gated on AZURE_ARM_ENABLED + a subscription; the token is
+    # minted per investigation from the same MI (scope management.azure.com).
+    azure_subscription_id = os.getenv("AZURE_SUBSCRIPTION_ID", "").strip()
+    azure_arm_enabled = os.getenv("AZURE_ARM_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+    azure_arm_token = ""
+    if azure_arm_enabled and azure_subscription_id:
+        azure_arm_token = os.getenv("AZURE_ARM_TOKEN", "").strip() or _mint_azure_arm_token()
+
+    la_ok = bool(azure_workspace_id and azure_access_token)
+    arm_ok = bool(azure_arm_token and azure_subscription_id)
+    if la_ok or arm_ok:
         integrations.append(
             _active_env_record(
                 "azure",
@@ -1907,8 +1950,14 @@ def load_env_integrations() -> list[dict[str, Any]]:
                         or "https://api.loganalytics.io"
                     ),
                     "tenant_id": os.getenv("AZURE_TENANT_ID", "").strip(),
-                    "subscription_id": os.getenv("AZURE_SUBSCRIPTION_ID", "").strip(),
+                    "subscription_id": azure_subscription_id,
                     "max_results": safe_int(os.getenv("AZURE_MAX_RESULTS", "100"), 100),
+                    "arm_access_token": azure_arm_token,
+                    "arm_endpoint": (
+                        os.getenv("AZURE_ARM_ENDPOINT", "https://management.azure.com").strip()
+                        or "https://management.azure.com"
+                    ),
+                    "arm_resource_group": os.getenv("AZURE_RESOURCE_GROUP", "").strip(),
                 },
             )
         )
