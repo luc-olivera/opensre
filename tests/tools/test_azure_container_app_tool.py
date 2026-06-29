@@ -77,7 +77,18 @@ def test_list_mode_lists_apps(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_get_mode_returns_command(monkeypatch: pytest.MonkeyPatch) -> None:
     # First call → the app; second call → its revisions (with the /bin/false command).
     responses = [
-        _mock_resp({"name": "ca-cat-back-dev-sdc-01", "properties": {"runningStatus": "Running"}}),
+        _mock_resp(
+            {
+                "name": "ca-cat-back-dev-sdc-01",
+                "properties": {"runningStatus": "Running"},
+                "identity": {
+                    "type": "UserAssigned",
+                    "userAssignedIdentities": {
+                        "/subscriptions/s/.../id-cat-back": {"principalId": "prin-back", "clientId": "cli-back"}
+                    },
+                },
+            }
+        ),
         _mock_resp(
             {
                 "value": [
@@ -99,6 +110,8 @@ def test_get_mode_returns_command(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out["available"] is True and out["mode"] == "get"
     assert out["revisions"][0]["containers"][0]["command"] == ["/bin/false"]
     assert out["revisions"][0]["replicas"] == 0
+    # identity exposed so the agent can chain into list_role_assignments
+    assert out["app"]["identity"]["userAssignedIdentities"][0]["principalId"] == "prin-back"
 
 
 def test_http_error_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None:

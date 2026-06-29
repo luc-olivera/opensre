@@ -20,12 +20,24 @@ _MAX_REVISIONS = 20
 def _summarize_app(app: dict[str, Any]) -> dict[str, Any]:
     props = app.get("properties", {}) if isinstance(app, dict) else {}
     cfg = props.get("configuration", {}) or {}
+    # Expose the app's managed identity (incl. principalId) so the agent can chain
+    # into list_role_assignments to confirm RBAC (e.g. a missing AcrPull behind a
+    # pull 401) instead of only inferring it. (SRE-68 mem17)
+    ident = app.get("identity", {}) if isinstance(app, dict) else {}
+    user_assigned = [
+        {"resourceId": rid, "principalId": (val or {}).get("principalId"), "clientId": (val or {}).get("clientId")}
+        for rid, val in (ident.get("userAssignedIdentities") or {}).items()
+    ]
     return {
         "name": app.get("name"),
         "provisioningState": props.get("provisioningState"),
         "runningStatus": props.get("runningStatus"),
         "activeRevisionsMode": cfg.get("activeRevisionsMode"),
         "latestRevisionName": props.get("latestRevisionName"),
+        "identity": {
+            "type": ident.get("type"),
+            "userAssignedIdentities": user_assigned,
+        },
     }
 
 
