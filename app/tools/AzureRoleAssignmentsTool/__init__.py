@@ -82,10 +82,18 @@ def list_role_assignments(
         return {"source": "azure", "available": False, "error": "Missing ARM credentials.", "rows": []}
 
     eff_scope = (scope or "").strip() or f"subscriptions/{sub}"
-    # $filter: atScope() limits to assignments AT this scope (not inherited);
-    # add principalId when given to answer "does X have a role here?".
     pid = principal_id.strip()
-    flt = f"atScope() and principalId eq '{pid}'" if pid else "atScope()"
+    # With a principal, use assignedTo('<pid>') at the (default subscription)
+    # scope: it returns EVERY role that principal effectively has — including
+    # inherited grants — so "does X have AcrPull anywhere" is answered correctly
+    # without knowing the target resource's exact ID (SRE-68 mem18). Without a
+    # principal, fall back to atScope() (assignments defined directly at scope).
+    if pid:
+        flt = f"assignedTo('{pid}')"
+        note = "effective assignments for the principal across the scope, including inherited grants"
+    else:
+        flt = "atScope()"
+        note = "assignments defined directly at this scope only (inherited grants not listed)"
 
     ok, body = arm_get(
         f"{eff_scope.lstrip('/')}/providers/Microsoft.Authorization/roleAssignments",
@@ -106,7 +114,7 @@ def list_role_assignments(
         "available": True,
         "scope": eff_scope,
         "filtered_principal_id": pid or None,
-        "note": "assignments at this scope only; inherited grants are not listed",
+        "note": note,
         "total_returned": len(rows),
         "rows": rows,
         "integration_id": integration_id,

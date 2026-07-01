@@ -63,7 +63,7 @@ def test_resolves_acrpull_and_filters_principal(monkeypatch: pytest.MonkeyPatch)
     )
     assert out["available"] is True
     assert out["rows"][0]["roleDefinitionName"] == "AcrPull"
-    assert "principalId eq 'p-1'" in captured["params"]["$filter"]
+    assert captured["params"]["$filter"] == "assignedTo('p-1')"
     assert captured["params"]["api-version"] == "2022-04-01"
 
 
@@ -71,7 +71,7 @@ def test_empty_assignments_means_role_absent(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("app.integrations.azure_arm.httpx.get", lambda *a, **k: _mock_resp({"value": []}))
     out = list_role_assignments(arm_access_token="tok", subscription_id="sub", scope="/sub/rg/acr", principal_id="p-1")
     assert out["available"] is True and out["total_returned"] == 0
-    assert "this scope only" in out["note"]
+    assert "inherited" in out["note"]  # assignedTo() path includes inherited grants
 
 
 def test_http_error_fail_soft(monkeypatch: pytest.MonkeyPatch) -> None:
