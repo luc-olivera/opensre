@@ -16,6 +16,28 @@ from app.delivery.publish_findings.formatters.infrastructure import (
 from app.delivery.publish_findings.report_context import ReportContext
 from app.delivery.publish_findings.urls.aws import build_cloudwatch_url
 
+# Severity → emoji, shared by Telegram and Slack headers.
+_SEVERITY_EMOJI: dict[str, str] = {
+    "critical": "🔴",
+    "crit": "🔴",
+    "high": "🟠",
+    "error": "🟠",
+    "medium": "🟡",
+    "warning": "🟡",
+    "warn": "🟡",
+    "low": "🟢",
+    "info": "🟢",
+    "none": "⚪",
+    "healthy": "🟢",
+    "normal": "🟢",
+}
+
+# Drop correlation signals/drivers below this confidence to avoid noise.
+_CORRELATION_MIN_SCORE = 0.4
+
+# Cap on distinct remediation steps rendered per report.
+_MAX_REMEDIATION_STEPS = 8
+
 
 def render_cloudwatch_link(ctx: ReportContext) -> str:
     """Render CloudWatch logs link if available in context."""
@@ -61,6 +83,8 @@ def _format_correlation_lines(ctx: ReportContext) -> tuple[list[str], list[str]]
         name = signal.get("name") or "unknown"
         source = signal.get("source") or "unknown"
         score = signal.get("score")
+        if isinstance(score, int | float) and score < _CORRELATION_MIN_SCORE:
+            continue
         score_text = f" score={float(score):.2f}" if isinstance(score, int | float) else ""
         signal_lines.append(f"• {name} ({source}{score_text})")
 
@@ -70,6 +94,8 @@ def _format_correlation_lines(ctx: ReportContext) -> tuple[list[str], list[str]]
             continue
         name = driver.get("name") or "unknown"
         confidence = driver.get("confidence")
+        if isinstance(confidence, int | float) and confidence < _CORRELATION_MIN_SCORE:
+            continue
         rationale = driver.get("rationale") or ""
         confidence_text = (
             f" confidence={float(confidence):.2f}" if isinstance(confidence, int | float) else ""
@@ -78,6 +104,31 @@ def _format_correlation_lines(ctx: ReportContext) -> tuple[list[str], list[str]]
         driver_lines.append(f"• {name}{confidence_text}{suffix}")
 
     return signal_lines, driver_lines
+
+
+def _dedup_remediation_steps(steps: list[str]) -> list[str]:
+    """Drop exact-normalized duplicate steps, preserving order and original text.
+
+    Normalization for the comparison key only: strip, collapse internal whitespace,
+    lowercase, and strip a leading bullet/numbering marker. The returned strings keep
+    their original casing and text. Empty/whitespace-only steps are skipped and the
+    result is capped at ``_MAX_REMEDIATION_STEPS``.
+    """
+    seen: set[str] = set()
+    result: list[str] = []
+    for step in steps:
+        text = str(step).strip()
+        if not text:
+            continue
+        key = re.sub(r"\s+", " ", text).lower()
+        key = re.sub(r"^(?:[•\-*]|\d+\.)\s*", "", key).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(step)
+        if len(result) >= _MAX_REMEDIATION_STEPS:
+            break
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -211,24 +262,26 @@ def _severity_telegram_header(ctx: ReportContext) -> str:
     """Severity emoji row aligned with Hermes Telegram sink conventions."""
     raw = (ctx.get("severity") or "").strip()
     lower = raw.lower()
-    emoji = {
-        "critical": "🔴",
-        "crit": "🔴",
-        "high": "🟠",
-        "error": "🟠",
-        "medium": "🟡",
-        "warning": "🟡",
-        "warn": "🟡",
-        "low": "🟢",
-        "info": "🟢",
-        "none": "⚪",
-        "healthy": "🟢",
-        "normal": "🟢",
-    }.get(lower, "⚠️")
+    emoji = _SEVERITY_EMOJI.get(lower, "⚠️")
     display_sev = raw.upper() if raw else "UNKNOWN"
     alert = html.escape(str(ctx.get("alert_name") or "Alert"))
     pipeline = html.escape(str(ctx.get("pipeline_name") or "unknown"))
     return f"{emoji} <b>{alert}</b> · {pipeline}\n<i>severity: {html.escape(display_sev)}</i>"
+
+
+def _severity_slack_header_text(ctx: ReportContext) -> str:
+    """Plain-text Slack header row: ``{emoji} {alert} · {pipeline}``.
+
+    Slack ``header`` blocks accept plain_text only (no mrkdwn/HTML) and hard-limit
+    at 150 chars, so the result is truncated to fit.
+    """
+    emoji = _SEVERITY_EMOJI.get(str(ctx.get("severity") or "").strip().lower(), "⚠️")
+    alert = str(ctx.get("alert_name") or "Alert")
+    pipeline = str(ctx.get("pipeline_name") or "unknown")
+    text = f"{emoji} {alert} · {pipeline}"
+    if len(text) > 150:
+        text = text[:147] + "…"
+    return text
 
 
 def _render_claim_lines_telegram(ctx: ReportContext) -> tuple[list[str], list[str]]:
@@ -494,7 +547,7 @@ def format_slack_message(ctx: ReportContext) -> str:
             "\n*Provenance:*\n" + _sanitize_for_slack("\n".join(provenance_lines)) + "\n"
         )
 
-    remediation_steps = ctx.get("remediation_steps", [])
+    remediation_steps = _dedup_remediation_steps(ctx.get("remediation_steps", []))
     remediation_block = ""
     if remediation_steps:
         remediation_block = (
@@ -570,7 +623,7 @@ def format_telegram_message(ctx: ReportContext) -> str:
         )
         parts.append("<b>Provenance</b>\n" + prov)
 
-    remediation_steps = ctx.get("remediation_steps", [])
+    remediation_steps = _dedup_remediation_steps(ctx.get("remediation_steps", []))
     if remediation_steps:
         ra = "\n".join(
             "• " + _to_telegram_html_body(_sanitize_for_slack(str(step)))
@@ -643,7 +696,7 @@ def format_whatsapp_message(ctx: ReportContext) -> str:
         parts.append("*Provenance*\n" + "\n".join(provenance_lines))
 
     # Recommended actions
-    remediation_steps = ctx.get("remediation_steps", [])
+    remediation_steps = _dedup_remediation_steps(ctx.get("remediation_steps", []))
     if remediation_steps:
         parts.append("*Recommended Actions*\n" + "\n".join(f"• {s}" for s in remediation_steps))
 
@@ -685,6 +738,18 @@ def build_slack_blocks(ctx: ReportContext) -> list[dict]:
     def _add(block: "dict[str, Any] | None") -> None:
         if block is not None:
             blocks.append(block)
+
+    # ── Severity / title header ──
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": _severity_slack_header_text(ctx),
+                "emoji": True,
+            },
+        }
+    )
 
     # ── Root Cause
     if not root_cause_sentence:
@@ -757,7 +822,7 @@ def build_slack_blocks(ctx: ReportContext) -> list[dict]:
         _add(_mrkdwn_section("\n".join(provenance_lines)))
 
     # ── Recommended Actions ──
-    remediation_steps = ctx.get("remediation_steps", [])
+    remediation_steps = _dedup_remediation_steps(ctx.get("remediation_steps", []))
     if remediation_steps:
         blocks.append({"type": "divider"})
         blocks.append(

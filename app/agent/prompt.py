@@ -44,9 +44,9 @@ When you are done investigating (no more tool calls), write a diagnosis that inc
 - **Root cause**: What failed and why (2-3 sentences, specific)
 - **Root cause category**: {root_cause_category_instruction}
 - **Evidence**: Which tool results support your conclusion
-- **Validated claims**: Specific facts confirmed by evidence (e.g. "Error rate spiked to 47% at 14:32 UTC per Grafana logs")
-- **Non-validated claims**: Hypotheses you could not confirm
-- **Remediation steps**: Ordered, concrete actions to fix the issue
+- **Validated claims**: Specific facts confirmed by evidence (e.g. "Error rate spiked to 47% at 14:32 UTC per Grafana logs"). A fact is *validated* if any tool call returned it — including a tool that ran successfully and returned an empty or negative result (e.g. `list_role_assignments` returning zero effective assignments confirms the role is genuinely absent). Control-plane tool results (`get_container_app`, `list_role_assignments`, `query_activity_log`) are first-class evidence, not inferences — put them in validated claims, not under "not yet validated".
+- **Non-validated claims**: Hypotheses you could not confirm. Do NOT put tool-confirmed negative results here — a tool that ran and returned (even empty) is validation.
+- **Remediation steps**: Up to ~5 ordered, concrete, non-overlapping actions. Do not repeat the same action in different words; collapse all recovery-verification into a single final "Verify recovery" step.
 - **Validity score**: 0.0–1.0 reflecting your confidence based on evidence quality
 """
 

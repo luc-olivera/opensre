@@ -45,6 +45,29 @@ def _format_tool_calls_line(
     grafana_endpoint = ctx.get("grafana_endpoint") or ""
     datadog_site = ctx.get("datadog_site") or "datadoghq.com"
 
+    def _azure_count(tool_key: str, unit: str, *, allow_zero: bool) -> str | None:
+        out = evidence.get(tool_key, {})
+        if not isinstance(out, dict) or not out.get("available"):
+            return None
+        n = out.get("total_returned")
+        if n is None:
+            return None
+        if n == 0 and not allow_zero:
+            return None
+        return f"{n} {unit}"
+
+    def _container_app_count() -> str | None:
+        # get mode → count revisions; list mode → count apps. Tolerates a missing
+        # or explicitly-None evidence entry and a non-list ``revisions`` value.
+        out = evidence.get("get_container_app") or {}
+        if not isinstance(out, dict) or not out.get("available"):
+            return None
+        if out.get("mode") == "get":
+            revisions = out.get("revisions")
+            revisions = revisions if isinstance(revisions, list) else []
+            return f"{len(revisions)} revisions"
+        return _azure_count("get_container_app", "apps", allow_zero=False)
+
     def _grafana_logs_count(e: dict) -> str | None:
         logs = e.get("grafana_logs", [])
         errors = e.get("grafana_error_logs", [])
@@ -224,6 +247,27 @@ def _format_tool_calls_line(
                 f"{len(e.get('betterstack_logs', []))} rows" if e.get("betterstack_logs") else None
             ),
             None,  # Better Stack SQL endpoint has no user-facing deep-link URL
+        ),
+        "list_role_assignments": (
+            "Azure RBAC",
+            # Render "0 assignments" so an empty-RBAC negative result stays visible.
+            lambda e: _azure_count("list_role_assignments", "assignments", allow_zero=True),
+            None,
+        ),
+        "get_container_app": (
+            "Azure Container App",
+            lambda e: _container_app_count(),
+            None,
+        ),
+        "query_activity_log": (
+            "Azure Activity Log",
+            lambda e: _azure_count("query_activity_log", "events", allow_zero=False),
+            None,
+        ),
+        "query_azure_monitor_logs": (
+            "Azure Monitor Logs",
+            lambda e: _azure_count("query_azure_monitor_logs", "rows", allow_zero=False),
+            None,
         ),
     }
 
