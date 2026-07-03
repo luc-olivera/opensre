@@ -63,6 +63,7 @@ class ReportContext(TypedDict, total=False):
     validity_score: float
     investigation_recommendations: list[str]
     remediation_steps: list[str]
+    proposed_remediation: dict[str, Any]
     correlation: dict[str, Any]
 
     # S3 verification
@@ -935,6 +936,7 @@ def build_report_context(state: InvestigationState) -> ReportContext:
         "validity_score": state.get("validity_score", 0.0),
         "investigation_recommendations": state.get("investigation_recommendations", []),
         "remediation_steps": state.get("remediation_steps", []),
+        "proposed_remediation": state.get("proposed_remediation", {}) or {},
         "correlation": state.get("correlation", {}),
         # S3 verification
         "s3_marker_exists": ns.s3.get("marker_exists", False),

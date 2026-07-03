@@ -48,6 +48,12 @@ When you are done investigating (no more tool calls), write a diagnosis that inc
 - **Non-validated claims**: Hypotheses you could not confirm. Do NOT put tool-confirmed negative results here — a tool that ran and returned (even empty) is validation.
 - **Remediation steps**: Up to ~5 ordered, concrete, non-overlapping actions. Do not repeat the same action in different words; collapse all recovery-verification into a single final "Verify recovery" step.
 - **Validity score**: 0.0–1.0 reflecting your confidence based on evidence quality
+- **Proposed remediation (structured, not executed):** In addition to the free-text remediation steps, emit ONE structured proposal. Choose `action_type` ONLY from: `rollback_revision`, `restart_revision`, `grant_acr_pull`, `remove_env_var`, `scale_revision`, `manual`, `none`. Set `target` to the resource, generate a copy-pasteable `exact_command`, set `risk` (low/medium/high), a one-line `rationale`, and `confidence` (0–1). NEVER propose destructive or irreversible actions (no delete, no data operations, no scale-to-zero of the only revision) — if the safe fix is outside the taxonomy use `manual` with an empty command; use `none` when no remediation is warranted. Command templates:
+    - `rollback_revision` → `az containerapp revision copy --name <app> --resource-group <rg> --from-revision <good-revision>`
+    - `restart_revision` → `az containerapp revision restart --name <app> --resource-group <rg> --revision <revision>`
+    - `grant_acr_pull` → `az role assignment create --assignee <principalId> --role AcrPull --scope <acrId>`
+    - `remove_env_var` → `az containerapp update --name <app> --resource-group <rg> --remove-env-vars <NAME> --revision-suffix <suffix>`
+    - `scale_revision` → `az containerapp update --name <app> --resource-group <rg> --min-replicas <n> --max-replicas <m>`
 """
 
 _ALERT_CONTEXT_TEMPLATE = """## Alert

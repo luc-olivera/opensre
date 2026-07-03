@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, TypedDict, cast
 
 from pydantic import BaseModel, Field
@@ -15,6 +16,35 @@ from app.types.root_cause_categories import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class RemediationActionType(str, Enum):
+    rollback_revision = "rollback_revision"
+    restart_revision = "restart_revision"
+    grant_acr_pull = "grant_acr_pull"
+    remove_env_var = "remove_env_var"
+    scale_revision = "scale_revision"
+    manual = "manual"
+    none = "none"
+
+
+class ProposedRemediation(BaseModel):
+    """Structured, bounded remediation proposal. Not executed (Phase 1: propose-only)."""
+
+    action_type: RemediationActionType = Field(
+        default=RemediationActionType.none,
+        description="One remediation action from the bounded taxonomy.",
+    )
+    target: str = Field(default="", description="Resource the action targets.")
+    parameters: dict[str, Any] = Field(
+        default_factory=dict, description="Structured parameters for the action."
+    )
+    exact_command: str = Field(
+        default="", description="Copy-pasteable command that would apply the fix."
+    )
+    risk: str = Field(default="low", description="Risk level: low / medium / high.")
+    rationale: str = Field(default="", description="One-line justification for the proposal.")
+    confidence: float = Field(default=0.0, description="0.0–1.0 confidence in the proposal.")
 
 
 @dataclass
@@ -30,6 +60,7 @@ class InvestigationResult:
     evidence_entries: list[dict] = field(default_factory=list)
     agent_messages: list[dict] = field(default_factory=list)
     investigation_recommendations: list[str] = field(default_factory=list)
+    proposed_remediation: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def unknown(cls, alert_name: str = "Unknown alert") -> InvestigationResult:
@@ -133,6 +164,10 @@ def _build_diagnosis_schema(include_categories: set[str]) -> type[BaseModel]:
         validity_score: float = Field(
             default=0.0, description="0.0–1.0 confidence in the diagnosis"
         )
+        proposed_remediation: ProposedRemediation = Field(
+            default_factory=ProposedRemediation,
+            description="Structured, bounded remediation proposal. Not executed.",
+        )
 
     return DiagnosisSchema
 
@@ -161,6 +196,7 @@ Evidence keys collected: {", ".join(evidence.keys()) if evidence else "none"}
         non_validated_claims: list[str]
         remediation_steps: list[str]
         validity_score: float
+        proposed_remediation: dict[str, Any]
 
     llm = get_llm_for_reasoning()
     schema_model = _build_diagnosis_schema(_taxonomy_categories_for_alert_source(alert_source))
@@ -185,6 +221,7 @@ Evidence keys collected: {", ".join(evidence.keys()) if evidence else "none"}
         non_validated_claims=_to_claim_dicts(schema["non_validated_claims"], "not_validated"),
         remediation_steps=schema["remediation_steps"],
         validity_score=schema["validity_score"],
+        proposed_remediation=schema["proposed_remediation"],
     )
 
 

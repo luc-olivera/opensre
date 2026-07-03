@@ -1117,6 +1117,7 @@ def _result_to_state(result: InvestigationResult) -> dict[str, Any]:
         "remediation_steps": result.remediation_steps,
         "validity_score": result.validity_score,
         "investigation_recommendations": result.investigation_recommendations,
+        "proposed_remediation": result.proposed_remediation,
         "evidence": result.evidence,
         "evidence_entries": result.evidence_entries,
         "agent_messages": result.agent_messages,

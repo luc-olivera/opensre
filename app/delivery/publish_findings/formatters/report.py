@@ -131,6 +131,28 @@ def _dedup_remediation_steps(steps: list[str]) -> list[str]:
     return result
 
 
+def _remediation_proposal_fields(ctx) -> "dict | None":
+    """Extract normalized fields from the structured remediation proposal.
+
+    Returns None when there is no actionable proposal (missing/``none`` action),
+    so callers can skip rendering the section entirely.
+    """
+    pr = ctx.get("proposed_remediation") or {}
+    if not isinstance(pr, dict):
+        return None
+    action = str(pr.get("action_type") or "none").strip().lower()
+    if action in ("", "none"):
+        return None
+    return {
+        "action": action,
+        "target": str(pr.get("target") or "").strip(),
+        "command": str(pr.get("exact_command") or "").strip(),
+        "risk": (str(pr.get("risk") or "").strip().lower() or "low"),
+        "rationale": str(pr.get("rationale") or "").strip(),
+        "confidence": pr.get("confidence"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Shared section helpers — called by both text and block renderers
 # ---------------------------------------------------------------------------
@@ -556,6 +578,21 @@ def format_slack_message(ctx: ReportContext) -> str:
             + "\n"
         )
 
+    proposal = _remediation_proposal_fields(ctx)
+    proposed_block = ""
+    if proposal:
+        proposed_block = (
+            f"\n## Proposed Remediation\n"
+            f"*Action:* `{proposal['action']}`  *Risk:* {proposal['risk']}\n"
+        )
+        if proposal["target"]:
+            proposed_block += f"*Target:* `{proposal['target']}`\n"
+        if proposal["command"]:
+            proposed_block += f"*Command:*\n`{proposal['command']}`\n"
+        if proposal["rationale"]:
+            proposed_block += f"*Rationale:* {_sanitize_for_slack(proposal['rationale'])}\n"
+        proposed_block += "_Proposed — not executed._\n"
+
     trace_steps = build_investigation_trace(ctx)
     trace_block = (
         "\n## Investigation Trace\n" + "\n".join(trace_steps) + "\n" if trace_steps else ""
@@ -573,7 +610,7 @@ def format_slack_message(ctx: ReportContext) -> str:
     # Do not prefix with a separate [RCA] title line; the consumer can render
     # section headings (Root Cause text, Findings, Investigation Trace) with
     # larger fonts as needed.
-    return f"""{conclusion_block}{provenance_block}{remediation_block}{trace_block}
+    return f"""{conclusion_block}{provenance_block}{remediation_block}{proposed_block}{trace_block}
 {cited_section}
 {cloudwatch_link}{meta_block}
 """
@@ -630,6 +667,23 @@ def format_telegram_message(ctx: ReportContext) -> str:
             for step in remediation_steps
         )
         parts.append("<b>Recommended Actions</b>\n" + ra)
+
+    proposal = _remediation_proposal_fields(ctx)
+    if proposal:
+        proposal_lines = [
+            f"<b>Action</b>: <code>{html.escape(proposal['action'])}</code>",
+            f"<b>Risk</b>: {html.escape(proposal['risk'])}",
+        ]
+        if proposal["target"]:
+            proposal_lines.append(f"<b>Target</b>: <code>{html.escape(proposal['target'])}</code>")
+        if proposal["command"]:
+            proposal_lines.append(f"<code>{html.escape(proposal['command'])}</code>")
+        if proposal["rationale"]:
+            proposal_lines.append(
+                _to_telegram_html_body(_sanitize_for_slack(proposal["rationale"]))
+            )
+        proposal_lines.append("<i>Proposed — not executed.</i>")
+        parts.append("<b>Proposed Remediation</b>\n" + "\n".join(proposal_lines))
 
     trace_steps = build_investigation_trace(ctx)
     if trace_steps:
@@ -832,6 +886,26 @@ def build_slack_blocks(ctx: ReportContext) -> list[dict]:
             }
         )
         _add(_mrkdwn_section("\n".join(f"• {_sanitize_for_slack(s)}" for s in remediation_steps)))
+
+    # ── Proposed Remediation (structured, not executed) ──
+    proposal = _remediation_proposal_fields(ctx)
+    if proposal:
+        blocks.append({"type": "divider"})
+        blocks.append(
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Proposed Remediation"},
+            }
+        )
+        proposal_lines = [f"*Action:* `{proposal['action']}`", f"*Risk:* {proposal['risk']}"]
+        if proposal["target"]:
+            proposal_lines.append(f"*Target:* `{proposal['target']}`")
+        if proposal["command"]:
+            proposal_lines.append(f"*Command:*\n```{proposal['command']}```")
+        if proposal["rationale"]:
+            proposal_lines.append(f"*Rationale:* {_sanitize_for_slack(proposal['rationale'])}")
+        proposal_lines.append("_Proposed — not executed._")
+        _add(_mrkdwn_section("\n".join(proposal_lines)))
 
     # ── Investigation Trace ──
     trace_steps = build_investigation_trace(ctx)

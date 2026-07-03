@@ -79,6 +79,7 @@ class AgentState(TypedDict, total=False):
     validity_score: float
     investigation_recommendations: list[str]
     remediation_steps: list[str]
+    proposed_remediation: dict[str, Any]
     investigation_loop_count: int
     hypotheses: list[str]
     executed_hypotheses: list[dict[str, Any]]
@@ -190,6 +191,7 @@ class AgentStateModel(StrictConfigModel):
     validity_score: float = 0.0
     investigation_recommendations: list[str] = Field(default_factory=list)
     remediation_steps: list[str] = Field(default_factory=list)
+    proposed_remediation: dict[str, Any] = Field(default_factory=dict)
     investigation_loop_count: int = 0
     hypotheses: list[str] = Field(default_factory=list)
     executed_hypotheses: list[dict[str, Any]] = Field(default_factory=list)
