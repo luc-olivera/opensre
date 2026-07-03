@@ -21,9 +21,17 @@ bootstrap_formatter_modules()
 # Now safe to import from app
 # ---------------------------------------------------------------------------
 
+import enum
 import html
 
 import pytest
+
+
+class _FakeActionEnum(str, enum.Enum):
+    """Mimics RemediationActionType: str(member) renders "ClassName.member",
+    so this reproduces the enum-instance path the live run exposed."""
+
+    grant_acr_pull = "grant_acr_pull"
 
 from app.delivery.publish_findings.formatters.report import (
     _remediation_proposal_fields,
@@ -103,6 +111,16 @@ class TestRemediationProposalFields:
 
     def test_returns_none_for_missing_key(self) -> None:
         assert _remediation_proposal_fields(_base_ctx()) is None
+
+    def test_action_type_enum_instance_is_unwrapped(self) -> None:
+        # Regression: a live run passed a RemediationActionType enum instance,
+        # and str(enum).lower() rendered "remediationactiontype.grant_acr_pull".
+        # The helper must unwrap via .value → "grant_acr_pull".
+        ctx = _base_ctx()
+        ctx["proposed_remediation"] = {"action_type": _FakeActionEnum.grant_acr_pull}
+        result = _remediation_proposal_fields(ctx)
+        assert result is not None
+        assert result["action"] == "grant_acr_pull"
 
     def test_returns_populated_dict_for_real_proposal(self) -> None:
         ctx = _ctx_with_proposal()

@@ -221,7 +221,10 @@ Evidence keys collected: {", ".join(evidence.keys()) if evidence else "none"}
         non_validated_claims=_to_claim_dicts(schema["non_validated_claims"], "not_validated"),
         remediation_steps=schema["remediation_steps"],
         validity_score=schema["validity_score"],
-        proposed_remediation=schema["proposed_remediation"],
+        # mode="json" so the nested action_type enum serializes to its plain
+        # string value (e.g. "grant_acr_pull") rather than a RemediationActionType
+        # instance — the contract the formatter and the Phase-2 executor consume.
+        proposed_remediation=schema_instance.proposed_remediation.model_dump(mode="json"),
     )
 
 

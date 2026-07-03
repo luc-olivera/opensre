@@ -140,7 +140,11 @@ def _remediation_proposal_fields(ctx) -> "dict | None":
     pr = ctx.get("proposed_remediation") or {}
     if not isinstance(pr, dict):
         return None
-    action = str(pr.get("action_type") or "none").strip().lower()
+    # action_type may arrive as a plain string or (defensively) an Enum instance —
+    # unwrap via .value so we never render the "ClassName.member" repr.
+    raw_action = pr.get("action_type")
+    raw_action = getattr(raw_action, "value", raw_action)
+    action = str(raw_action or "none").strip().lower()
     if action in ("", "none"):
         return None
     return {
